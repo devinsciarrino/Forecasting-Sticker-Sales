@@ -1,0 +1,135 @@
+##############################################################
+# Ridge regression 
+##############################################################
+
+#clean training data
+
+# Function to convert all categorical variables into dummy variables
+convert_to_dummies <- function(dt_train) {
+  
+  # Identify categorical columns (factors or character)
+  categorical_columns <- sapply(dt_train, function(col) is.factor(col) || is.character(col))
+  
+  # Use caret::dummyVars to create dummy variables
+  dummy_model <- dummyVars(~ ., data = dt_train, fullRank = TRUE)
+  dummy_data <- as.data.frame(predict(dummy_model, newdata = dt_train))
+  
+  return(dummy_data)
+}
+
+# Apply the function
+dt_train <- convert_to_dummies(dt_train)
+
+
+#Train ridge model
+
+# Set up the train control for cross-validation
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+#Train Ridge regression model
+reg_ridge <- train(
+                num_sold ~ ., 
+                data = dt_train, 
+                method = "glmnet",  
+                trControl = train_control,
+                preProcess = c("center", "scale"),  # Standardize predictors
+                tuneGrid = expand.grid(alpha = 0,  # Alpha = 0 for Ridge regression
+                lambda = seq(10^-2, 10^5, length = 50)))  # Range of lambda values
+
+
+
+# Get the best lambda for ridge
+best_lambda_ridge <- reg_ridge$bestTune$lambda
+cat("Optimal Lambda: ", best_lambda_ridge, "\n")
+
+#Train Ridge regression model: smaller lambda range
+reg_ridge2 <- train(
+  num_sold ~ ., 
+  data = dt_train, 
+  method = "glmnet",  
+  trControl = train_control,
+  preProcess = c("center", "scale"),  # Standardize predictors
+  tuneGrid = expand.grid(alpha = 0,  # Alpha = 0 for Ridge regression
+                         lambda = seq(10^-3, 10^2, length = 50)))  # Range of lambda values
+
+
+# Get the best lambda for ridge
+best_lambda_ridge2 <- reg_ridge2$bestTune$lambda
+cat("Optimal Lambda: ", best_lambda_ridge2, "\n")
+
+
+###########################
+#Validation set prediction
+###########################
+
+#clean training data
+
+# Function to convert all categorical variables into dummy variables
+convert_to_dummies_v <- function(dt_valid) {
+  
+  # Identify categorical columns (factors or character)
+  categorical_columns <- sapply(dt_valid, function(col) is.factor(col) || is.character(col))
+  
+  # Use caret::dummyVars to create dummy variables
+  dummy_model_v <- dummyVars(~ ., data = dt_valid, fullRank = TRUE)
+  dummy_data_v <- as.data.frame(predict(dummy_model_v, newdata = dt_valid))
+  
+  return(dummy_data_v)
+}
+
+# Apply the function
+dt_valid <- convert_to_dummies(dt_valid)
+
+
+#validation set prediction
+predictions_ridge_valid <- predict(reg_ridge2, 
+                                s = best_lambda_ridge2, 
+                                newdata = dt_valid)
+predictions_ridge_valid
+
+# Calculate regression metrics
+mse_r <- mean((predictions_ridge_valid - dt_valid$num_sold)^2)  # Mean Squared Error
+rmse_r <- sqrt(mse)  # Root Mean Squared Error
+mae_r <- mean(abs(predictions_ridge_valid - dt_valid$num_sold))  # Mean Absolute Error
+mape_r <-  mean(abs((predictions_ridge_valid - dt_valid$num_sold) / predictions_rf_valid)) * 100
+
+cat("MSE:", mse_r, "\nRMSE:", rmse_r, "\nMAE:", mae_r,"\nMAPE:", mape_r, "\n")
+
+##################################
+# test 
+##################################
+
+# Function to convert all categorical variables into dummy variables
+convert_to_dummies_t <- function(dt_test) {
+  
+  # Identify categorical columns (factors or character)
+  categorical_columns <- sapply(dt_test, function(col) is.factor(col) || is.character(col))
+  
+  # Use caret::dummyVars to create dummy variables
+  dummy_model_t <- dummyVars(~ ., data = dt_test, fullRank = TRUE)
+  dummy_data_t <- as.data.frame(predict(dummy_model_t, newdata = dt_test))
+  
+  return(dummy_data_t)
+}
+
+# Apply the function
+dt_test <- convert_to_dummies_t(dt_test)
+
+#test set prediction
+predictions_ridge_test <- predict(reg_ridge2, s = best_lambda_ridge2, newdata = dt_test)
+predictions_ridge_test
+
+#submission file creation
+stickersubdata <- data.frame(c(dt_test$id))
+stickersubdata$id <- stickersubdata$c.dt_test.id.
+stickersubdata$SalePrice <- predictions_ridge_test
+stickersubdata$c.dt_test.id. <- NULL
+
+
+# Save predictions
+require(pacman)
+setwd("~/Documents")
+pacman::p_load(data.table)
+save(stickersubdata, file = "stickers_final.RData")
+fwrite(stickersubdata, "stickers_final.csv")
+
