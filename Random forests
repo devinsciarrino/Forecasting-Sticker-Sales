@@ -1,0 +1,157 @@
+##################################################
+# Devin Sciarrino
+# 21 January 2025
+###################################################
+
+#####################
+# Preliminaries
+#####################
+
+
+
+# Clear environment, garbage, plot pane, and console
+rm(list = ls())
+gc() 
+graphics.off()
+cat("\014")
+
+# Turn off scientific notation
+options(scipen = 999)
+
+# pacman installation
+if (!require(pacman)) install.packages("pacman")
+
+# Load packages
+pacman::p_load(ISLR2, caret, randomForest, data.table, ggplot2, glmnet, boot)
+
+#set seed
+set.seed(418518)
+
+#setwd
+setwd("~/Downloads")
+
+#load data
+dt <- read.csv("playground-series-s5e1/train.csv")
+
+
+##################
+# Data Cleaning
+##################
+
+#check for na
+colSums(is.na(dt))
+
+#mean imputation
+dt <- lapply(dt, function(col) {
+  if (is.numeric(col)) {
+    col[is.na(col)] <- mean(col, na.rm = TRUE)
+  }
+  col
+})
+
+#ensure data frame
+dt <- as.data.frame(dt)
+
+
+##################
+# Split data into train/validation
+##################
+train_size <- floor(0.7 * nrow(dt)) #finding amount for each indices 
+test_size <- ceiling(0.3 * nrow(dt))
+shuffled_indices <- sample(nrow(dt)) #shuffle orignial data set
+train_indices <- shuffled_indices[1:train_size] #split indices
+test_indices <- shuffled_indices[(train_size + 1):nrow(dt)]
+dt_train <- dt[train_indices, ] #create data sets
+dt_valid <- dt[test_indices, ]
+rm(dt)
+
+# Reduce the number of decimal places in the 'value' column to 2
+dt_train$num_sold <- round(dt_train$num_sold, 2)
+dt_valid$num_sold <- round(dt_valid$num_sold, 2)
+
+# Extract numeric features (e.g., days since a reference date)
+dt_train$date <- 
+  as.numeric(difftime(dt_train$date, as.Date("2010-01-01"), units = "days"))
+dt_valid$date <- 
+  as.numeric(difftime(dt_valid$date, as.Date("2010-01-01"), units = "days"))
+
+
+########################
+#random forests model
+########################
+
+# Define the grid of mtry values 
+mtry_grid <- data.frame(mtry = seq(1, 5.5, length.out = 10))
+
+{
+  # Print current number of trees in the forest
+  print(paste0(t," trees in the forest."))
+  
+  # Define the model type
+  rf_500 <- train(
+    num_sold ~ .,        
+    data = dt_train,        
+    method = "rf",  
+    tuneGrid = mtry_grid,  
+    trControl = trainControl(method = "cv", number = 5),
+    ntree = 500
+  )
+  
+  # Store the model in the list
+  models_rf[[paste0("ntree_", t)]] <- rf_100_300_500
+  
+  print(rf_100_300_500)
+  
+}
+
+# validation tuning
+
+colSums(is.na(dt_valid))
+
+#validation set prediction
+predictions_rf_valid <- predict(rf_100_300_500, newdata = dt_valid)
+predictions_rf_valid
+
+# Calculate regression metrics
+mse <- mean((predictions_rf_valid - dt_valid$num_sold)^2)  # Mean Squared Error
+rmse <- sqrt(mse)  # Root Mean Squared Error
+mae <- mean(abs(predictions_rf_valid - dt_valid$num_sold))  # Mean Absolute Error
+mape <-  mean(abs((predictions_rf_valid - dt_valid$num_sold) / predictions_rf_valid)) * 100
+
+cat("MSE:", mse, "\nRMSE:", rmse, "\nMAE:", mae,"\nMAPE:", mape, "\n")
+
+
+#######################
+# Test set
+#######################
+
+#load test set
+dt_test <- read.csv("playground-series-s5e1/test.csv")
+
+#check for na
+colSums(is.na(dt_test))
+
+# Extract numeric features (e.g., days since a reference date)
+dt_test$date <- 
+  as.numeric(difftime(dt_test$date, as.Date("2010-01-01"), units = "days"))
+
+#ensure data frame
+dt_test <- as.data.frame(dt_test)
+
+#validation set prediction
+predictions_rf_test <- predict(rf_500, newdata = dt_test)
+predictions_rf_test
+
+#submission file creation
+stickersubdata <- data.frame(c(dt_test$id))
+stickersubdata$id <- stickersubdata$c.dt_test.id.
+stickersubdata$SalePrice <- predictions_rf_test
+stickersubdata$c.dt_test.id. <- NULL
+
+
+# Save predictions
+require(pacman)
+setwd("~/Documents")
+pacman::p_load(data.table)
+save(stickersubdata, file = "stickers_final.RData")
+fwrite(stickersubdata, "stickers_final.csv")
